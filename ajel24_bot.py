@@ -1,9 +1,8 @@
 """
-بوت أخبار عاجل 24 - مراقبة متعددة المصادر 24/7
-يستخدم Pillow مع معالجة صحيحة للنص العربي
+بوت أخبار عاجل 24
+يستخدم HTML + Playwright لرسم البوسترات بنص عربي صحيح 100%
 """
 
-from PIL import Image, ImageDraw, ImageFont
 import requests
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -11,22 +10,9 @@ import os
 import json
 import time
 import socket
-import subprocess
 import sys
+import subprocess
 from datetime import datetime
-
-# ===================== تثبيت المكتبات =====================
-def install(pkg):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
-
-try:
-    import arabic_reshaper
-    from bidi.algorithm import get_display
-except ImportError:
-    install("arabic-reshaper")
-    install("python-bidi")
-    import arabic_reshaper
-    from bidi.algorithm import get_display
 
 old_getaddrinfo = socket.getaddrinfo
 def new_getaddrinfo(*args, **kwargs):
@@ -35,16 +21,10 @@ def new_getaddrinfo(*args, **kwargs):
 socket.getaddrinfo = new_getaddrinfo
 
 # ===================== الإعدادات =====================
-PAGE_HANDLE      = "Ajel24"
-POSTER_SIZE      = (1080, 1080)
-GROQ_API_KEY     = os.environ.get("GROQ_API_KEY", "")
+PAGE_HANDLE         = "Ajel24"
+GROQ_API_KEY        = os.environ.get("GROQ_API_KEY", "")
 CHECK_EVERY_MINUTES = 5
-HISTORY_FILE     = "ajel24_history.json"
-RED_COLOR        = (200, 30, 30)
-
-# خط Cairo من Google Fonts
-FONT_URL  = "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"
-FONT_PATH = "Cairo.ttf"
+HISTORY_FILE        = "ajel24_history.json"
 
 # ===================== المصادر =====================
 NEWS_SOURCES = [
@@ -59,57 +39,150 @@ NEWS_SOURCES = [
     {"name": "CGTN عربي", "url": "https://arabic.cgtn.com/rss.xml"},
 ]
 
-# ===================== تحميل الخط =====================
-def download_font():
-    if not os.path.exists(FONT_PATH):
-        print("📥 تحميل الخط Cairo...")
-        try:
-            r = requests.get(FONT_URL, timeout=30)
-            with open(FONT_PATH, "wb") as f:
-                f.write(r.content)
-            print("✅ تم تحميل الخط")
-        except Exception as e:
-            print(f"⚠️ فشل تحميل الخط: {e}")
-
-# ===================== معالجة النص العربي =====================
-def process_arabic(text):
-    """
-    الطريقة الوحيدة الصحيحة لعرض العربية في PIL:
-    reshape أولاً لتوصيل الحروف، ثم get_display لعكس الاتجاه
-    """
+# ===================== تثبيت Playwright =====================
+def setup_playwright():
     try:
-        reshaped = arabic_reshaper.reshape(text)
-        return get_display(reshaped)
-    except:
-        return text
+        from playwright.sync_api import sync_playwright
+        return True
+    except ImportError:
+        print("📥 تثبيت Playwright...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright", "-q"])
+        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+        return True
 
-def split_to_lines(text, font, draw, max_width):
-    """
-    تقسيم النص إلى أسطر:
-    - نعمل على النص الأصلي (غير المعالج)
-    - نقيس كل سطر بعد المعالجة
-    - نعيد القائمة معالجة
-    """
-    words = text.split()
-    raw_lines = []
-    current = []
+# ===================== إنشاء HTML للبوستر =====================
+def build_html(title, source):
+    return f"""<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    width: 1080px;
+    height: 1080px;
+    background: #c81e1e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Cairo', 'Noto Sans Arabic', 'Segoe UI', Arial, sans-serif;
+    direction: rtl;
+    overflow: hidden;
+  }}
+  .badge-wrap {{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 40px;
+    position: absolute;
+    top: 100px;
+  }}
+  .badge {{
+    border: 6px solid white;
+    padding: 18px 55px;
+    font-size: 110px;
+    font-weight: 900;
+    color: white;
+    letter-spacing: 4px;
+    line-height: 1.1;
+  }}
+  .arrow {{
+    width: 0;
+    height: 0;
+    border-left: 22px solid transparent;
+    border-right: 22px solid transparent;
+    border-top: 28px solid white;
+  }}
+  .content {{
+    margin-top: 320px;
+    padding: 0 60px;
+    text-align: center;
+    width: 100%;
+  }}
+  .title {{
+    font-size: 68px;
+    font-weight: 700;
+    color: white;
+    line-height: 1.5;
+    margin-bottom: 30px;
+    direction: rtl;
+    unicode-bidi: bidi-override;
+  }}
+  .source {{
+    font-size: 32px;
+    color: rgba(255,220,220,0.9);
+    margin-top: 20px;
+  }}
+  .footer {{
+    position: absolute;
+    bottom: 80px;
+    text-align: center;
+    width: 100%;
+  }}
+  .logo {{
+    font-size: 72px;
+    font-weight: 900;
+    color: white;
+    display: block;
+    margin-bottom: 10px;
+  }}
+  .line {{
+    width: 200px;
+    height: 4px;
+    background: white;
+    margin: 10px auto;
+  }}
+  .handle {{
+    font-size: 36px;
+    color: white;
+  }}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="badge-wrap">
+    <div class="badge">عاجل</div>
+    <div class="arrow"></div>
+  </div>
+  <div class="content">
+    <div class="title">{title}</div>
+    <div class="source">المصدر: {source}</div>
+  </div>
+  <div class="footer">
+    <span class="logo">عاجل 24</span>
+    <div class="line"></div>
+    <span class="handle">f &nbsp; {PAGE_HANDLE}</span>
+  </div>
+</body>
+</html>"""
 
-    for word in words:
-        current.append(word)
-        # قياس السطر الحالي بعد المعالجة
-        processed = process_arabic(" ".join(current))
-        bbox = draw.textbbox((0, 0), processed, font=font)
-        w = bbox[2] - bbox[0]
-        if w > max_width and len(current) > 1:
-            current.pop()
-            raw_lines.append(" ".join(current))
-            current = [word]
+# ===================== صنع البوستر =====================
+def make_poster(title, source, output_path):
+    try:
+        from playwright.sync_api import sync_playwright
 
-    if current:
-        raw_lines.append(" ".join(current))
+        html = build_html(title, source)
+        html_file = output_path.replace(".png", ".html")
 
-    # معالجة كل سطر
-    return [process_arabic(line) for line in raw_lines]
+        with open(html_file, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1080, "height": 1080})
+            page.goto(f"file://{os.path.abspath(html_file)}")
+            page.wait_for_timeout(1500)  # انتظار تحميل الخط
+            page.screenshot(path=output_path, full_page=False)
+            browser.close()
+
+        os.remove(html_file)
+        print(f"  🖼️ {output_path}")
+        return output_path
+
+    except Exception as e:
+        print(f"  ❌ خطأ في البوستر: {e}")
+        return None
 
 # ===================== Groq =====================
 def rephrase_with_groq(title):
@@ -120,14 +193,11 @@ def rephrase_with_groq(title):
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
-        prompt = f"""أعد صياغة هذا العنوان الإخباري بأسلوب مختلف ومختصر:
-"{title}"
-- أسلوب صحفي عاجل
-- أجب بالعنوان فقط بدون شرح"""
-
         body = {
             "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": f"""أعد صياغة هذا العنوان الإخباري بأسلوب عاجل مختصر:
+"{title}"
+أجب بالعنوان فقط بدون شرح."""}],
             "temperature": 0.7,
             "max_tokens": 100
         }
@@ -141,8 +211,7 @@ def rephrase_with_groq(title):
         new_title = data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
         print(f"  ✏️ {new_title}")
         return new_title
-    except Exception as e:
-        print(f"  ⚠️ Groq: {e}")
+    except:
         return title
 
 # ===================== سجل الأخبار =====================
@@ -163,80 +232,17 @@ def add_to_history(title, history):
     save_history(history)
     return history
 
-# ===================== صنع البوستر =====================
-def make_poster(title, source, output_path):
-    W, H = POSTER_SIZE
-    img  = Image.new("RGB", (W, H), color=RED_COLOR)
-    draw = ImageDraw.Draw(img)
-
-    try:
-        f_badge  = ImageFont.truetype(FONT_PATH, 110)
-        f_title  = ImageFont.truetype(FONT_PATH, 64)
-        f_logo   = ImageFont.truetype(FONT_PATH, 72)
-        f_source = ImageFont.truetype(FONT_PATH, 32)
-        f_page   = ImageFont.truetype(FONT_PATH, 36)
-    except Exception as e:
-        print(f"⚠️ خطأ خط: {e}")
-        return None
-
-    # ── شارة عاجل ──
-    badge = process_arabic("عاجل")
-    bb = draw.textbbox((0, 0), badge, font=f_badge)
-    bw, bh = bb[2]-bb[0], bb[3]-bb[1]
-    bx = (W - bw - 100) // 2
-    by = 100
-    draw.rectangle([bx-6, by-6, bx+bw+106, by+bh+56], outline=(255,255,255), width=6)
-    draw.text((bx+50-bb[0], by+25-bb[1]), badge, font=f_badge, fill=(255,255,255))
-
-    # ── سهم ──
-    ay = by + bh + 56
-    draw.polygon([(W//2-22, ay),(W//2+22, ay),(W//2, ay+28)], fill=(255,255,255))
-
-    # ── نص الخبر ──
-    lines  = split_to_lines(title, f_title, draw, W - 140)
-    lh     = 95
-    total  = len(lines) * lh
-    ty     = (H - total) // 2 + 40
-
-    for i, line in enumerate(lines):
-        bb = draw.textbbox((0,0), line, font=f_title)
-        tw = bb[2]-bb[0]
-        draw.text(((W-tw)//2 - bb[0], ty + i*lh - bb[1]), line, font=f_title, fill=(255,255,255))
-
-    # ── المصدر ──
-    src_txt = process_arabic(f"المصدر: {source}")
-    bb = draw.textbbox((0,0), src_txt, font=f_source)
-    sw = bb[2]-bb[0]
-    draw.text(((W-sw)//2 - bb[0], ty+total+20 - bb[1]), src_txt, font=f_source, fill=(255,220,220))
-
-    # ── الشعار ──
-    logo = process_arabic("عاجل 24")
-    bb = draw.textbbox((0,0), logo, font=f_logo)
-    lw = bb[2]-bb[0]
-    draw.text(((W-lw)//2 - bb[0], H-210 - bb[1]), logo, font=f_logo, fill=(255,255,255))
-    draw.rectangle([(W//2)-100, H-128, (W//2)+100, H-124], fill=(255,255,255))
-
-    # ── هاندل ──
-    page = f"f  {PAGE_HANDLE}"
-    bb = draw.textbbox((0,0), page, font=f_page)
-    pw = bb[2]-bb[0]
-    draw.text(((W-pw)//2, H-95), page, font=f_page, fill=(255,255,255))
-
-    img.save(output_path, quality=95)
-    print(f"  🖼️ {output_path}")
-    return output_path
-
 # ===================== جلب الأخبار =====================
 def fetch_source(source):
     items = []
     try:
-        req  = urllib.request.Request(source["url"], headers={"User-Agent":"Mozilla/5.0"})
+        req  = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
         resp = urllib.request.urlopen(req, timeout=10)
         root = ET.fromstring(resp.read())
         for item in root.findall(".//item"):
-            t = item.findtext("title","").strip()
+            t = item.findtext("title", "").strip()
             if t:
-                items.append({"title":t, "source":source["name"]})
+                items.append({"title": t, "source": source["name"]})
         print(f"  📡 {source['name']}: {len(items)}")
     except Exception as e:
         print(f"  ⚠️ {source['name']}: {e}")
@@ -262,8 +268,8 @@ def check_once(history, counter):
     print(f"  🔔 {len(new_news)} جديد!")
     for news in new_news:
         counter += 1
-        title   = news["title"]
-        source  = news["source"]
+        title  = news["title"]
+        source = news["source"]
         print(f"\n  [{counter}] [{source}] {title[:60]}")
         new_title = rephrase_with_groq(title)
         make_poster(new_title, source, f"posters/ajel24_{counter:03d}.png")
@@ -275,7 +281,7 @@ def check_once(history, counter):
 # ===================== Main =====================
 if __name__ == "__main__":
     os.makedirs("posters", exist_ok=True)
-    download_font()
+    setup_playwright()
     history = load_history()
     counter = len(history)
 
