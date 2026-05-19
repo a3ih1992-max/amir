@@ -1,5 +1,5 @@
 """
-بوت أخبار عاجل 24 - مراقبة الجزيرة 24/7
+بوت أخبار عاجل 24 - مراقبة متعددة المصادر 24/7
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -32,10 +32,47 @@ HISTORY_FILE        = "ajel24_history.json"
 
 ARABIC_FONT_PATH = "Amiri-Bold.ttf"
 
-ALJAZEERA_RSS = "https://www.aljazeera.net/rss"
-SOURCE_NAME   = "الجزيرة"
-
 RED_COLOR = (200, 30, 30)
+
+# ===================== المصادر الإخبارية =====================
+NEWS_SOURCES = [
+    {
+        "name": "الجزيرة",
+        "url": "https://www.aljazeera.net/rss"
+    },
+    {
+        "name": "العربية",
+        "url": "https://www.alarabiya.net/tools/rss"
+    },
+    {
+        "name": "سكاي نيوز",
+        "url": "https://www.skynewsarabia.com/rss.xml"
+    },
+    {
+        "name": "BBC عربي",
+        "url": "https://feeds.bbci.co.uk/arabic/rss.xml"
+    },
+    {
+        "name": "فرانس 24",
+        "url": "https://www.france24.com/ar/rss"
+    },
+    {
+        "name": "الميادين",
+        "url": "https://www.almayadeen.net/rss/news.xml"
+    },
+    {
+        "name": "TRT عربي",
+        "url": "https://www.trtarabi.com/rss"
+    },
+    {
+        "name": "الشرق",
+        "url": "https://asharq.com/feed/"
+    },
+    {
+        "name": "CGTN عربي",
+        "url": "https://arabic.cgtn.com/rss.xml"
+    },
+]
 
 # ===================== Groq =====================
 
@@ -96,7 +133,7 @@ def add_to_history(title, history):
     save_history(history)
     return history
 
-# ===================== ✅ دالة النص الصحيحة =====================
+# ===================== دالة النص الصحيحة =====================
 
 def ar(text):
     """تحويل النص العربي للعرض الصحيح في PIL"""
@@ -104,7 +141,7 @@ def ar(text):
     return get_display(reshaped)
 
 def wrap_text(text, font, draw, max_width):
-    """تقسيم النص إلى أسطر بناءً على عرض الصورة"""
+    """تقسيم النص إلى أسطر بناءً على عرض الصورة بالبكسل"""
     words = text.split()
     lines = []
     current_line = []
@@ -142,7 +179,7 @@ def make_breaking_poster(title, source, output_path="poster.png"):
         print(f"⚠️ خطأ في الخط: {e}")
         return None
 
-    # ===== شارة "عاجل" =====
+    # شارة "عاجل"
     badge_text = ar("عاجل")
     bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
     bw = bbox[2] - bbox[0]
@@ -169,7 +206,7 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     ]
     draw.polygon(arrow_points, fill=(255, 255, 255))
 
-    # ===== نص الخبر =====
+    # نص الخبر
     max_text_width = W - 120
     lines = wrap_text(title, font_title, draw, max_text_width)
 
@@ -184,14 +221,14 @@ def make_breaking_poster(title, source, output_path="poster.png"):
         x = (W - tw) // 2
         draw.text((x, y), line, font=font_title, fill=(255, 255, 255))
 
-    # ===== المصدر =====
+    # المصدر
     source_text = ar(f"المصدر: {source}")
     bbox = draw.textbbox((0, 0), source_text, font=font_source)
     sw = bbox[2] - bbox[0]
     source_y = text_start_y + total_text_h + 25
     draw.text(((W - sw) // 2, source_y), source_text, font=font_source, fill=(255, 220, 220))
 
-    # ===== الشعار =====
+    # الشعار
     logo_text = ar("عاجل 24")
     bbox = draw.textbbox((0, 0), logo_text, font=font_logo)
     lw = bbox[2] - bbox[0]
@@ -210,28 +247,46 @@ def make_breaking_poster(title, source, output_path="poster.png"):
 
 # ===================== جلب الأخبار =====================
 
-def fetch_news():
+def fetch_news_from_source(source):
+    """جلب الأخبار من مصدر واحد"""
     news_list = []
     try:
-        req = urllib.request.Request(ALJAZEERA_RSS, headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(
+            source["url"],
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
         resp = urllib.request.urlopen(req, timeout=10)
         root = ET.fromstring(resp.read())
         for item in root.findall(".//item"):
             title = item.findtext("title", "").strip()
             link  = item.findtext("link", "").strip()
             if title:
-                news_list.append({"title": title, "link": link})
+                news_list.append({
+                    "title": title,
+                    "link": link,
+                    "source": source["name"]
+                })
+        print(f"  📡 {source['name']}: {len(news_list)} خبر")
     except Exception as e:
-        print(f"❌ خطأ في جلب الأخبار: {e}")
+        print(f"  ⚠️ {source['name']}: خطأ - {e}")
     return news_list
+
+def fetch_all_news():
+    """جلب الأخبار من جميع المصادر"""
+    all_news = []
+    for source in NEWS_SOURCES:
+        news = fetch_news_from_source(source)
+        all_news.extend(news)
+        time.sleep(0.5)
+    return all_news
 
 # ===================== الفحص الواحد =====================
 
 def check_once(history, counter):
     now = datetime.now().strftime("%H:%M:%S")
-    print(f"\n🔄 [{now}] فحص الجزيرة...")
+    print(f"\n🔄 [{now}] فحص جميع المصادر...")
 
-    all_news = fetch_news()
+    all_news = fetch_all_news()
     if not all_news:
         print("  ⚠️ لا توجد أخبار")
         return history, counter
@@ -239,20 +294,21 @@ def check_once(history, counter):
     new_news = [n for n in all_news if n["title"] not in history]
 
     if not new_news:
-        print(f"  ✅ لا أخبار جديدة (آخر فحص: {len(all_news)} خبر)")
+        print(f"  ✅ لا أخبار جديدة (إجمالي: {len(all_news)} خبر)")
         return history, counter
 
     print(f"  🔔 {len(new_news)} خبر جديد!")
 
     for news in new_news:
-        title = news["title"]
+        title  = news["title"]
+        source = news["source"]
         counter += 1
-        print(f"\n  📌 [{counter}] {title[:70]}")
+        print(f"\n  📌 [{counter}] [{source}] {title[:60]}")
 
         new_title = rephrase_with_groq(title)
 
         output = f"posters/ajel24_{counter:03d}.png"
-        make_breaking_poster(new_title, SOURCE_NAME, output_path=output)
+        make_breaking_poster(new_title, source, output_path=output)
         print(f"  ✅ بوستر جاهز: {output}")
 
         history = add_to_history(title, history)
@@ -265,7 +321,9 @@ def check_once(history, counter):
 def run_forever():
     print(f"\n{'='*55}")
     print(f"🔴 عاجل 24 — وضع المراقبة الدائمة 24/7")
-    print(f"📡 المصدر: الجزيرة")
+    print(f"📡 المصادر: {len(NEWS_SOURCES)} قناة إخبارية")
+    for s in NEWS_SOURCES:
+        print(f"   • {s['name']}")
     print(f"⏰ يفحص كل {CHECK_EVERY_MINUTES} دقائق")
     print(f"{'='*55}\n")
 
