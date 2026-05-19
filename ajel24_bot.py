@@ -30,12 +30,11 @@ POSTER_SIZE      = (1080, 1080)
 
 GROQ_API_KEY     = os.environ.get("GROQ_API_KEY", "")
 
-CHECK_EVERY_MINUTES = 5     # يفحص كل 5 دقائق
+CHECK_EVERY_MINUTES = 5
 HISTORY_FILE        = "ajel24_history.json"
 
 ARABIC_FONT_PATH = "Amiri-Bold.ttf"
 
-# الجزيرة فقط (RT و العربية محظوران)
 ALJAZEERA_RSS = "https://www.aljazeera.net/rss"
 SOURCE_NAME   = "الجزيرة"
 
@@ -103,9 +102,12 @@ def add_to_history(title, history):
 # ===================== دوال النص =====================
 
 def reshape(text):
-    return get_display(arabic_reshaper.reshape(text))
+    """✅ إصلاح: استخدام arabic_reshaper بشكل صحيح"""
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)
 
 def wrap_text(text, max_chars=22):
+    """✅ إصلاح: تجميع الأسطر أولاً ثم reshape للنص كاملاً"""
     words = text.split()
     lines, current = [], []
     count = 0
@@ -119,7 +121,11 @@ def wrap_text(text, max_chars=22):
             count += len(word) + 1
     if current:
         lines.append(" ".join(current))
-    return [reshape(line) for line in lines]
+
+    # ✅ الإصلاح الأساسي: reshape للنص كاملاً دفعة واحدة
+    full_text = "\n".join(lines)
+    reshaped = get_display(arabic_reshaper.reshape(full_text))
+    return reshaped.split("\n")
 
 # ===================== صنع البوستر =====================
 
@@ -129,7 +135,7 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     draw = ImageDraw.Draw(result)
 
     try:
-        font_badge  = ImageFont.truetype(ARABIC_FONT_PATH, 130)
+        font_badge  = ImageFont.truetype(ARABIC_FONT_PATH, 100)  # ✅ تصغير من 130 إلى 100
         font_title  = ImageFont.truetype(ARABIC_FONT_PATH, 60)
         font_logo   = ImageFont.truetype(ARABIC_FONT_PATH, 70)
         font_page   = ImageFont.truetype(ARABIC_FONT_PATH, 36)
@@ -242,15 +248,12 @@ def check_once(history, counter):
         counter += 1
         print(f"\n  📌 [{counter}] {title[:70]}")
 
-        # إعادة الصياغة
         new_title = rephrase_with_groq(title)
 
-        # صنع البوستر
         output = f"posters/ajel24_{counter:03d}.png"
         make_breaking_poster(new_title, SOURCE_NAME, output_path=output)
         print(f"  ✅ بوستر جاهز: {output}")
 
-        # حفظ السجل
         history = add_to_history(title, history)
 
         time.sleep(2)
@@ -288,11 +291,9 @@ def run_forever():
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        # فحص واحد فقط للتجربة
         os.makedirs("posters", exist_ok=True)
         history = load_history()
         counter = len(history)
         check_once(history, counter)
     else:
-        # وضع المراقبة الدائمة
         run_forever()
