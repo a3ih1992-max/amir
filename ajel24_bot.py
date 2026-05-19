@@ -1,10 +1,9 @@
 """
 بوت أخبار عاجل 24 - مراقبة متعددة المصادر 24/7
+يستخدم Pillow مع معالجة صحيحة للنص العربي
 """
 
 from PIL import Image, ImageDraw, ImageFont
-import arabic_reshaper
-from bidi.algorithm import get_display
 import requests
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -12,7 +11,22 @@ import os
 import json
 import time
 import socket
+import subprocess
+import sys
 from datetime import datetime
+
+# ===================== تثبيت المكتبات =====================
+def install(pkg):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
+
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+except ImportError:
+    install("arabic-reshaper")
+    install("python-bidi")
+    import arabic_reshaper
+    from bidi.algorithm import get_display
 
 old_getaddrinfo = socket.getaddrinfo
 def new_getaddrinfo(*args, **kwargs):
@@ -21,35 +35,18 @@ def new_getaddrinfo(*args, **kwargs):
 socket.getaddrinfo = new_getaddrinfo
 
 # ===================== الإعدادات =====================
-PAGE_NAME        = "عاجل 24"
 PAGE_HANDLE      = "Ajel24"
 POSTER_SIZE      = (1080, 1080)
-
 GROQ_API_KEY     = os.environ.get("GROQ_API_KEY", "")
-
 CHECK_EVERY_MINUTES = 5
-HISTORY_FILE        = "ajel24_history.json"
+HISTORY_FILE     = "ajel24_history.json"
+RED_COLOR        = (200, 30, 30)
 
-# رابط خط Cairo Bold من Google Fonts
+# خط Cairo من Google Fonts
 FONT_URL  = "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"
 FONT_PATH = "Cairo.ttf"
 
-RED_COLOR = (200, 30, 30)
-
-# ===================== تحميل الخط =====================
-
-def download_font():
-    if not os.path.exists(FONT_PATH):
-        print("📥 تحميل الخط...")
-        try:
-            r = requests.get(FONT_URL, timeout=30)
-            with open(FONT_PATH, "wb") as f:
-                f.write(r.content)
-            print("✅ تم تحميل الخط")
-        except Exception as e:
-            print(f"⚠️ فشل تحميل الخط: {e}")
-
-# ===================== المصادر الإخبارية =====================
+# ===================== المصادر =====================
 NEWS_SOURCES = [
     {"name": "الجزيرة",   "url": "https://www.aljazeera.net/rss"},
     {"name": "العربية",   "url": "https://www.alarabiya.net/tools/rss"},
@@ -62,23 +59,71 @@ NEWS_SOURCES = [
     {"name": "CGTN عربي", "url": "https://arabic.cgtn.com/rss.xml"},
 ]
 
-# ===================== Groq =====================
+# ===================== تحميل الخط =====================
+def download_font():
+    if not os.path.exists(FONT_PATH):
+        print("📥 تحميل الخط Cairo...")
+        try:
+            r = requests.get(FONT_URL, timeout=30)
+            with open(FONT_PATH, "wb") as f:
+                f.write(r.content)
+            print("✅ تم تحميل الخط")
+        except Exception as e:
+            print(f"⚠️ فشل تحميل الخط: {e}")
 
-def rephrase_with_groq(title):
+# ===================== معالجة النص العربي =====================
+def process_arabic(text):
+    """
+    الطريقة الوحيدة الصحيحة لعرض العربية في PIL:
+    reshape أولاً لتوصيل الحروف، ثم get_display لعكس الاتجاه
+    """
     try:
-        url = "https://api.groq.com/openai/v1/chat/completions"
+        reshaped = arabic_reshaper.reshape(text)
+        return get_display(reshaped)
+    except:
+        return text
+
+def split_to_lines(text, font, draw, max_width):
+    """
+    تقسيم النص إلى أسطر:
+    - نعمل على النص الأصلي (غير المعالج)
+    - نقيس كل سطر بعد المعالجة
+    - نعيد القائمة معالجة
+    """
+    words = text.split()
+    raw_lines = []
+    current = []
+
+    for word in words:
+        current.append(word)
+        # قياس السطر الحالي بعد المعالجة
+        processed = process_arabic(" ".join(current))
+        bbox = draw.textbbox((0, 0), processed, font=font)
+        w = bbox[2] - bbox[0]
+        if w > max_width and len(current) > 1:
+            current.pop()
+            raw_lines.append(" ".join(current))
+            current = [word]
+
+    if current:
+        raw_lines.append(" ".join(current))
+
+    # معالجة كل سطر
+    return [process_arabic(line) for line in raw_lines]
+
+# ===================== Groq =====================
+def rephrase_with_groq(title):
+    if not GROQ_API_KEY:
+        return title
+    try:
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
-        prompt = f"""أعد صياغة هذا العنوان الإخباري بأسلوب مختلف ومختصر مع الحفاظ على المعنى الكامل:
+        prompt = f"""أعد صياغة هذا العنوان الإخباري بأسلوب مختلف ومختصر:
 "{title}"
-
-شروط:
-- لا تستخدم نفس الكلمات الأصلية كلها
-- اجعله أقصر إن أمكن
-- استخدم أسلوب صحفي عاجل
-- أجب بالعنوان الجديد فقط بدون أي شرح أو علامات اقتباس"""
+- أسلوب صحفي عاجل
+- أجب بالعنوان فقط بدون شرح"""
 
         body = {
             "model": "llama-3.3-70b-versatile",
@@ -86,24 +131,21 @@ def rephrase_with_groq(title):
             "temperature": 0.7,
             "max_tokens": 100
         }
-        resp = requests.post(url, headers=headers, json=body, timeout=15)
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers, json=body, timeout=15
+        )
         data = resp.json()
-
         if "error" in data:
-            print(f"  ⚠️ Groq error: {data['error'].get('message', '')}")
             return title
-
-        new_title = data["choices"][0]["message"]["content"].strip()
-        new_title = new_title.strip('"').strip("'").strip()
-        print(f"  ✏️ صياغة جديدة: {new_title}")
+        new_title = data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+        print(f"  ✏️ {new_title}")
         return new_title
-
     except Exception as e:
-        print(f"  ⚠️ خطأ Groq: {e}")
+        print(f"  ⚠️ Groq: {e}")
         return title
 
 # ===================== سجل الأخبار =====================
-
 def load_history():
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -121,207 +163,134 @@ def add_to_history(title, history):
     save_history(history)
     return history
 
-# ===================== دالة النص =====================
-
-def ar(text):
-    reshaped = arabic_reshaper.reshape(text)
-    return get_display(reshaped)
-
-def wrap_text(text, font, draw, max_width):
-    words = text.split()
-    lines = []
-    current_line = []
-
-    for word in words:
-        current_line.append(word)
-        test_display = ar(" ".join(current_line))
-        bbox = draw.textbbox((0, 0), test_display, font=font)
-        w = bbox[2] - bbox[0]
-        if w > max_width and len(current_line) > 1:
-            current_line.pop()
-            lines.append(ar(" ".join(current_line)))
-            current_line = [word]
-
-    if current_line:
-        lines.append(ar(" ".join(current_line)))
-
-    return lines
-
 # ===================== صنع البوستر =====================
-
-def make_breaking_poster(title, source, output_path="poster.png"):
+def make_poster(title, source, output_path):
     W, H = POSTER_SIZE
-    result = Image.new("RGB", (W, H), color=RED_COLOR)
-    draw = ImageDraw.Draw(result)
+    img  = Image.new("RGB", (W, H), color=RED_COLOR)
+    draw = ImageDraw.Draw(img)
 
     try:
-        font_badge  = ImageFont.truetype(FONT_PATH, 110)
-        font_title  = ImageFont.truetype(FONT_PATH, 62)
-        font_logo   = ImageFont.truetype(FONT_PATH, 70)
-        font_page   = ImageFont.truetype(FONT_PATH, 36)
-        font_source = ImageFont.truetype(FONT_PATH, 30)
+        f_badge  = ImageFont.truetype(FONT_PATH, 110)
+        f_title  = ImageFont.truetype(FONT_PATH, 64)
+        f_logo   = ImageFont.truetype(FONT_PATH, 72)
+        f_source = ImageFont.truetype(FONT_PATH, 32)
+        f_page   = ImageFont.truetype(FONT_PATH, 36)
     except Exception as e:
-        print(f"⚠️ خطأ في الخط: {e}")
+        print(f"⚠️ خطأ خط: {e}")
         return None
 
-    # شارة "عاجل"
-    badge_text = ar("عاجل")
-    bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
-    bw = bbox[2] - bbox[0]
-    bh = bbox[3] - bbox[1]
-    box_w = bw + 100
-    box_h = bh + 50
-    box_x = (W - box_w) // 2
-    box_y = 100
+    # ── شارة عاجل ──
+    badge = process_arabic("عاجل")
+    bb = draw.textbbox((0, 0), badge, font=f_badge)
+    bw, bh = bb[2]-bb[0], bb[3]-bb[1]
+    bx = (W - bw - 100) // 2
+    by = 100
+    draw.rectangle([bx-6, by-6, bx+bw+106, by+bh+56], outline=(255,255,255), width=6)
+    draw.text((bx+50-bb[0], by+25-bb[1]), badge, font=f_badge, fill=(255,255,255))
 
-    draw.rectangle(
-        [box_x - 6, box_y - 6, box_x + box_w + 6, box_y + box_h + 6],
-        outline=(255, 255, 255), width=6
-    )
-    text_x = box_x + (box_w - bw) // 2 - bbox[0]
-    text_y = box_y + (box_h - bh) // 2 - bbox[1]
-    draw.text((text_x, text_y), badge_text, font=font_badge, fill=(255, 255, 255))
+    # ── سهم ──
+    ay = by + bh + 56
+    draw.polygon([(W//2-22, ay),(W//2+22, ay),(W//2, ay+28)], fill=(255,255,255))
 
-    # السهم
-    arrow_y = box_y + box_h + 6
-    arrow_points = [
-        (W // 2 - 22, arrow_y),
-        (W // 2 + 22, arrow_y),
-        (W // 2, arrow_y + 28)
-    ]
-    draw.polygon(arrow_points, fill=(255, 255, 255))
-
-    # نص الخبر
-    lines = wrap_text(title, font_title, draw, W - 120)
-    line_h = 90
-    total_text_h = len(lines) * line_h
-    text_start_y = (H - total_text_h) // 2 + 50
+    # ── نص الخبر ──
+    lines  = split_to_lines(title, f_title, draw, W - 140)
+    lh     = 95
+    total  = len(lines) * lh
+    ty     = (H - total) // 2 + 40
 
     for i, line in enumerate(lines):
-        y = text_start_y + i * line_h
-        bbox = draw.textbbox((0, 0), line, font=font_title)
-        tw = bbox[2] - bbox[0]
-        x = (W - tw) // 2
-        draw.text((x, y), line, font=font_title, fill=(255, 255, 255))
+        bb = draw.textbbox((0,0), line, font=f_title)
+        tw = bb[2]-bb[0]
+        draw.text(((W-tw)//2 - bb[0], ty + i*lh - bb[1]), line, font=f_title, fill=(255,255,255))
 
-    # المصدر
-    source_text = ar(f"المصدر: {source}")
-    bbox = draw.textbbox((0, 0), source_text, font=font_source)
-    sw = bbox[2] - bbox[0]
-    source_y = text_start_y + total_text_h + 25
-    draw.text(((W - sw) // 2, source_y), source_text, font=font_source, fill=(255, 220, 220))
+    # ── المصدر ──
+    src_txt = process_arabic(f"المصدر: {source}")
+    bb = draw.textbbox((0,0), src_txt, font=f_source)
+    sw = bb[2]-bb[0]
+    draw.text(((W-sw)//2 - bb[0], ty+total+20 - bb[1]), src_txt, font=f_source, fill=(255,220,220))
 
-    # الشعار
-    logo_text = ar("عاجل 24")
-    bbox = draw.textbbox((0, 0), logo_text, font=font_logo)
-    lw = bbox[2] - bbox[0]
-    draw.text(((W - lw) // 2, H - 200), logo_text, font=font_logo, fill=(255, 255, 255))
+    # ── الشعار ──
+    logo = process_arabic("عاجل 24")
+    bb = draw.textbbox((0,0), logo, font=f_logo)
+    lw = bb[2]-bb[0]
+    draw.text(((W-lw)//2 - bb[0], H-210 - bb[1]), logo, font=f_logo, fill=(255,255,255))
+    draw.rectangle([(W//2)-100, H-128, (W//2)+100, H-124], fill=(255,255,255))
 
-    draw.rectangle([(W // 2) - 100, H - 125, (W // 2) + 100, H - 121], fill=(255, 255, 255))
+    # ── هاندل ──
+    page = f"f  {PAGE_HANDLE}"
+    bb = draw.textbbox((0,0), page, font=f_page)
+    pw = bb[2]-bb[0]
+    draw.text(((W-pw)//2, H-95), page, font=f_page, fill=(255,255,255))
 
-    page_text = f"f  {PAGE_HANDLE}"
-    bbox = draw.textbbox((0, 0), page_text, font=font_page)
-    pw = bbox[2] - bbox[0]
-    draw.text(((W - pw) // 2, H - 95), page_text, font=font_page, fill=(255, 255, 255))
-
-    result.save(output_path, quality=95)
-    print(f"  🖼️ تم حفظ: {output_path}")
+    img.save(output_path, quality=95)
+    print(f"  🖼️ {output_path}")
     return output_path
 
 # ===================== جلب الأخبار =====================
-
-def fetch_news_from_source(source):
-    news_list = []
+def fetch_source(source):
+    items = []
     try:
-        req = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
+        req  = urllib.request.Request(source["url"], headers={"User-Agent":"Mozilla/5.0"})
         resp = urllib.request.urlopen(req, timeout=10)
         root = ET.fromstring(resp.read())
         for item in root.findall(".//item"):
-            title = item.findtext("title", "").strip()
-            link  = item.findtext("link", "").strip()
-            if title:
-                news_list.append({"title": title, "link": link, "source": source["name"]})
-        print(f"  📡 {source['name']}: {len(news_list)} خبر")
+            t = item.findtext("title","").strip()
+            if t:
+                items.append({"title":t, "source":source["name"]})
+        print(f"  📡 {source['name']}: {len(items)}")
     except Exception as e:
-        print(f"  ⚠️ {source['name']}: خطأ - {e}")
-    return news_list
+        print(f"  ⚠️ {source['name']}: {e}")
+    return items
 
-def fetch_all_news():
-    all_news = []
-    for source in NEWS_SOURCES:
-        news = fetch_news_from_source(source)
-        all_news.extend(news)
+def fetch_all():
+    news = []
+    for s in NEWS_SOURCES:
+        news.extend(fetch_source(s))
         time.sleep(0.5)
-    return all_news
+    return news
 
-# ===================== الفحص الواحد =====================
-
+# ===================== الفحص =====================
 def check_once(history, counter):
-    now = datetime.now().strftime("%H:%M:%S")
-    print(f"\n🔄 [{now}] فحص جميع المصادر...")
-
-    all_news = fetch_all_news()
-    if not all_news:
-        print("  ⚠️ لا توجد أخبار")
-        return history, counter
-
+    print(f"\n🔄 [{datetime.now().strftime('%H:%M:%S')}] فحص المصادر...")
+    all_news = fetch_all()
     new_news = [n for n in all_news if n["title"] not in history]
 
     if not new_news:
-        print(f"  ✅ لا أخبار جديدة (إجمالي: {len(all_news)} خبر)")
+        print(f"  ✅ لا جديد ({len(all_news)} خبر)")
         return history, counter
 
-    print(f"  🔔 {len(new_news)} خبر جديد!")
-
+    print(f"  🔔 {len(new_news)} جديد!")
     for news in new_news:
-        title  = news["title"]
-        source = news["source"]
         counter += 1
-        print(f"\n  📌 [{counter}] [{source}] {title[:60]}")
-
+        title   = news["title"]
+        source  = news["source"]
+        print(f"\n  [{counter}] [{source}] {title[:60]}")
         new_title = rephrase_with_groq(title)
-
-        output = f"posters/ajel24_{counter:03d}.png"
-        make_breaking_poster(new_title, source, output_path=output)
-        print(f"  ✅ بوستر جاهز: {output}")
-
+        make_poster(new_title, source, f"posters/ajel24_{counter:03d}.png")
         history = add_to_history(title, history)
         time.sleep(2)
 
     return history, counter
 
-# ===================== التشغيل الدائم =====================
-
-def run_forever():
-    print(f"\n{'='*55}")
-    print(f"🔴 عاجل 24 — وضع المراقبة الدائمة 24/7")
-    print(f"📡 المصادر: {len(NEWS_SOURCES)} قناة إخبارية")
-    print(f"{'='*55}\n")
-
-    os.makedirs("posters", exist_ok=True)
-    download_font()
-    history = load_history()
-    counter = len(history)
-
-    while True:
-        try:
-            history, counter = check_once(history, counter)
-            print(f"\n💤 انتظار {CHECK_EVERY_MINUTES} دقائق...")
-            time.sleep(CHECK_EVERY_MINUTES * 60)
-        except KeyboardInterrupt:
-            print("\n\n⏹️ تم إيقاف البوت")
-            break
-        except Exception as e:
-            print(f"\n❌ خطأ غير متوقع: {e}")
-            time.sleep(60)
-
+# ===================== Main =====================
 if __name__ == "__main__":
-    import sys
     os.makedirs("posters", exist_ok=True)
     download_font()
     history = load_history()
     counter = len(history)
+
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
         check_once(history, counter)
     else:
-        run_forever()
+        print(f"🔴 عاجل 24 | {len(NEWS_SOURCES)} مصادر")
+        while True:
+            try:
+                history, counter = check_once(history, counter)
+                print(f"\n💤 {CHECK_EVERY_MINUTES} دقائق...")
+                time.sleep(CHECK_EVERY_MINUTES * 60)
+            except KeyboardInterrupt:
+                print("\n⏹️ توقف")
+                break
+            except Exception as e:
+                print(f"❌ {e}")
+                time.sleep(60)
