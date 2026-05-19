@@ -30,48 +30,36 @@ GROQ_API_KEY     = os.environ.get("GROQ_API_KEY", "")
 CHECK_EVERY_MINUTES = 5
 HISTORY_FILE        = "ajel24_history.json"
 
-ARABIC_FONT_PATH = "Amiri-Bold.ttf"
+# رابط خط Cairo Bold من Google Fonts
+FONT_URL  = "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"
+FONT_PATH = "Cairo.ttf"
 
 RED_COLOR = (200, 30, 30)
 
+# ===================== تحميل الخط =====================
+
+def download_font():
+    if not os.path.exists(FONT_PATH):
+        print("📥 تحميل الخط...")
+        try:
+            r = requests.get(FONT_URL, timeout=30)
+            with open(FONT_PATH, "wb") as f:
+                f.write(r.content)
+            print("✅ تم تحميل الخط")
+        except Exception as e:
+            print(f"⚠️ فشل تحميل الخط: {e}")
+
 # ===================== المصادر الإخبارية =====================
 NEWS_SOURCES = [
-    {
-        "name": "الجزيرة",
-        "url": "https://www.aljazeera.net/rss"
-    },
-    {
-        "name": "العربية",
-        "url": "https://www.alarabiya.net/tools/rss"
-    },
-    {
-        "name": "سكاي نيوز",
-        "url": "https://www.skynewsarabia.com/rss.xml"
-    },
-    {
-        "name": "BBC عربي",
-        "url": "https://feeds.bbci.co.uk/arabic/rss.xml"
-    },
-    {
-        "name": "فرانس 24",
-        "url": "https://www.france24.com/ar/rss"
-    },
-    {
-        "name": "الميادين",
-        "url": "https://www.almayadeen.net/rss/news.xml"
-    },
-    {
-        "name": "TRT عربي",
-        "url": "https://www.trtarabi.com/rss"
-    },
-    {
-        "name": "الشرق",
-        "url": "https://asharq.com/feed/"
-    },
-    {
-        "name": "CGTN عربي",
-        "url": "https://arabic.cgtn.com/rss.xml"
-    },
+    {"name": "الجزيرة",   "url": "https://www.aljazeera.net/rss"},
+    {"name": "العربية",   "url": "https://www.alarabiya.net/tools/rss"},
+    {"name": "سكاي نيوز", "url": "https://www.skynewsarabia.com/rss.xml"},
+    {"name": "BBC عربي",  "url": "https://feeds.bbci.co.uk/arabic/rss.xml"},
+    {"name": "فرانس 24",  "url": "https://www.france24.com/ar/rss"},
+    {"name": "الميادين",  "url": "https://www.almayadeen.net/rss/news.xml"},
+    {"name": "TRT عربي",  "url": "https://www.trtarabi.com/rss"},
+    {"name": "الشرق",     "url": "https://asharq.com/feed/"},
+    {"name": "CGTN عربي", "url": "https://arabic.cgtn.com/rss.xml"},
 ]
 
 # ===================== Groq =====================
@@ -133,23 +121,20 @@ def add_to_history(title, history):
     save_history(history)
     return history
 
-# ===================== دالة النص الصحيحة =====================
+# ===================== دالة النص =====================
 
 def ar(text):
-    """تحويل النص العربي للعرض الصحيح في PIL"""
     reshaped = arabic_reshaper.reshape(text)
     return get_display(reshaped)
 
 def wrap_text(text, font, draw, max_width):
-    """تقسيم النص إلى أسطر بناءً على عرض الصورة بالبكسل"""
     words = text.split()
     lines = []
     current_line = []
 
     for word in words:
         current_line.append(word)
-        test_line = " ".join(current_line)
-        test_display = ar(test_line)
+        test_display = ar(" ".join(current_line))
         bbox = draw.textbbox((0, 0), test_display, font=font)
         w = bbox[2] - bbox[0]
         if w > max_width and len(current_line) > 1:
@@ -170,11 +155,11 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     draw = ImageDraw.Draw(result)
 
     try:
-        font_badge  = ImageFont.truetype(ARABIC_FONT_PATH, 110)
-        font_title  = ImageFont.truetype(ARABIC_FONT_PATH, 62)
-        font_logo   = ImageFont.truetype(ARABIC_FONT_PATH, 70)
-        font_page   = ImageFont.truetype(ARABIC_FONT_PATH, 36)
-        font_source = ImageFont.truetype(ARABIC_FONT_PATH, 30)
+        font_badge  = ImageFont.truetype(FONT_PATH, 110)
+        font_title  = ImageFont.truetype(FONT_PATH, 62)
+        font_logo   = ImageFont.truetype(FONT_PATH, 70)
+        font_page   = ImageFont.truetype(FONT_PATH, 36)
+        font_source = ImageFont.truetype(FONT_PATH, 30)
     except Exception as e:
         print(f"⚠️ خطأ في الخط: {e}")
         return None
@@ -207,9 +192,7 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     draw.polygon(arrow_points, fill=(255, 255, 255))
 
     # نص الخبر
-    max_text_width = W - 120
-    lines = wrap_text(title, font_title, draw, max_text_width)
-
+    lines = wrap_text(title, font_title, draw, W - 120)
     line_h = 90
     total_text_h = len(lines) * line_h
     text_start_y = (H - total_text_h) // 2 + 50
@@ -248,31 +231,22 @@ def make_breaking_poster(title, source, output_path="poster.png"):
 # ===================== جلب الأخبار =====================
 
 def fetch_news_from_source(source):
-    """جلب الأخبار من مصدر واحد"""
     news_list = []
     try:
-        req = urllib.request.Request(
-            source["url"],
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
+        req = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
         resp = urllib.request.urlopen(req, timeout=10)
         root = ET.fromstring(resp.read())
         for item in root.findall(".//item"):
             title = item.findtext("title", "").strip()
             link  = item.findtext("link", "").strip()
             if title:
-                news_list.append({
-                    "title": title,
-                    "link": link,
-                    "source": source["name"]
-                })
+                news_list.append({"title": title, "link": link, "source": source["name"]})
         print(f"  📡 {source['name']}: {len(news_list)} خبر")
     except Exception as e:
         print(f"  ⚠️ {source['name']}: خطأ - {e}")
     return news_list
 
 def fetch_all_news():
-    """جلب الأخبار من جميع المصادر"""
     all_news = []
     for source in NEWS_SOURCES:
         news = fetch_news_from_source(source)
@@ -322,12 +296,10 @@ def run_forever():
     print(f"\n{'='*55}")
     print(f"🔴 عاجل 24 — وضع المراقبة الدائمة 24/7")
     print(f"📡 المصادر: {len(NEWS_SOURCES)} قناة إخبارية")
-    for s in NEWS_SOURCES:
-        print(f"   • {s['name']}")
-    print(f"⏰ يفحص كل {CHECK_EVERY_MINUTES} دقائق")
     print(f"{'='*55}\n")
 
     os.makedirs("posters", exist_ok=True)
+    download_font()
     history = load_history()
     counter = len(history)
 
@@ -345,10 +317,11 @@ def run_forever():
 
 if __name__ == "__main__":
     import sys
+    os.makedirs("posters", exist_ok=True)
+    download_font()
+    history = load_history()
+    counter = len(history)
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        os.makedirs("posters", exist_ok=True)
-        history = load_history()
-        counter = len(history)
         check_once(history, counter)
     else:
         run_forever()
