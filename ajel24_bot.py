@@ -1,8 +1,5 @@
 """
 بوت أخبار عاجل 24 - مراقبة الجزيرة 24/7
-- يفحص كل 5 دقائق
-- يعيد صياغة كل خبر جديد
-- يصنع بوستر فوراً
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -99,33 +96,34 @@ def add_to_history(title, history):
     save_history(history)
     return history
 
-# ===================== دوال النص =====================
+# ===================== ✅ دالة النص الصحيحة =====================
 
-def reshape(text):
-    """✅ إصلاح: استخدام arabic_reshaper بشكل صحيح"""
+def ar(text):
+    """تحويل النص العربي للعرض الصحيح في PIL"""
     reshaped = arabic_reshaper.reshape(text)
     return get_display(reshaped)
 
-def wrap_text(text, max_chars=22):
-    """✅ إصلاح: تجميع الأسطر أولاً ثم reshape للنص كاملاً"""
+def wrap_text(text, font, draw, max_width):
+    """تقسيم النص إلى أسطر بناءً على عرض الصورة"""
     words = text.split()
-    lines, current = [], []
-    count = 0
-    for word in words:
-        if count + len(word) + 1 > max_chars and current:
-            lines.append(" ".join(current))
-            current = [word]
-            count = len(word)
-        else:
-            current.append(word)
-            count += len(word) + 1
-    if current:
-        lines.append(" ".join(current))
+    lines = []
+    current_line = []
 
-    # ✅ الإصلاح الأساسي: reshape للنص كاملاً دفعة واحدة
-    full_text = "\n".join(lines)
-    reshaped = get_display(arabic_reshaper.reshape(full_text))
-    return reshaped.split("\n")
+    for word in words:
+        current_line.append(word)
+        test_line = " ".join(current_line)
+        test_display = ar(test_line)
+        bbox = draw.textbbox((0, 0), test_display, font=font)
+        w = bbox[2] - bbox[0]
+        if w > max_width and len(current_line) > 1:
+            current_line.pop()
+            lines.append(ar(" ".join(current_line)))
+            current_line = [word]
+
+    if current_line:
+        lines.append(ar(" ".join(current_line)))
+
+    return lines
 
 # ===================== صنع البوستر =====================
 
@@ -135,24 +133,24 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     draw = ImageDraw.Draw(result)
 
     try:
-        font_badge  = ImageFont.truetype(ARABIC_FONT_PATH, 100)  # ✅ تصغير من 130 إلى 100
-        font_title  = ImageFont.truetype(ARABIC_FONT_PATH, 60)
+        font_badge  = ImageFont.truetype(ARABIC_FONT_PATH, 110)
+        font_title  = ImageFont.truetype(ARABIC_FONT_PATH, 62)
         font_logo   = ImageFont.truetype(ARABIC_FONT_PATH, 70)
         font_page   = ImageFont.truetype(ARABIC_FONT_PATH, 36)
-        font_source = ImageFont.truetype(ARABIC_FONT_PATH, 28)
+        font_source = ImageFont.truetype(ARABIC_FONT_PATH, 30)
     except Exception as e:
         print(f"⚠️ خطأ في الخط: {e}")
         return None
 
-    # شارة "عاجل"
-    badge_text = reshape("عاجل")
+    # ===== شارة "عاجل" =====
+    badge_text = ar("عاجل")
     bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
     bw = bbox[2] - bbox[0]
     bh = bbox[3] - bbox[1]
     box_w = bw + 100
     box_h = bh + 50
     box_x = (W - box_w) // 2
-    box_y = 120
+    box_y = 100
 
     draw.rectangle(
         [box_x - 6, box_y - 6, box_x + box_w + 6, box_y + box_h + 6],
@@ -165,17 +163,19 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     # السهم
     arrow_y = box_y + box_h + 6
     arrow_points = [
-        (W // 2 - 20, arrow_y),
-        (W // 2 + 20, arrow_y),
-        (W // 2, arrow_y + 25)
+        (W // 2 - 22, arrow_y),
+        (W // 2 + 22, arrow_y),
+        (W // 2, arrow_y + 28)
     ]
     draw.polygon(arrow_points, fill=(255, 255, 255))
 
-    # نص الخبر
-    lines = wrap_text(title, max_chars=22)
-    line_h = 85
+    # ===== نص الخبر =====
+    max_text_width = W - 120
+    lines = wrap_text(title, font_title, draw, max_text_width)
+
+    line_h = 90
     total_text_h = len(lines) * line_h
-    text_start_y = (H - total_text_h) // 2 + 60
+    text_start_y = (H - total_text_h) // 2 + 50
 
     for i, line in enumerate(lines):
         y = text_start_y + i * line_h
@@ -184,15 +184,15 @@ def make_breaking_poster(title, source, output_path="poster.png"):
         x = (W - tw) // 2
         draw.text((x, y), line, font=font_title, fill=(255, 255, 255))
 
-    # المصدر
-    source_text = reshape(f"المصدر: {source}")
+    # ===== المصدر =====
+    source_text = ar(f"المصدر: {source}")
     bbox = draw.textbbox((0, 0), source_text, font=font_source)
     sw = bbox[2] - bbox[0]
-    source_y = text_start_y + total_text_h + 20
+    source_y = text_start_y + total_text_h + 25
     draw.text(((W - sw) // 2, source_y), source_text, font=font_source, fill=(255, 220, 220))
 
-    # الشعار
-    logo_text = reshape("عاجل 24")
+    # ===== الشعار =====
+    logo_text = ar("عاجل 24")
     bbox = draw.textbbox((0, 0), logo_text, font=font_logo)
     lw = bbox[2] - bbox[0]
     draw.text(((W - lw) // 2, H - 200), logo_text, font=font_logo, fill=(255, 255, 255))
@@ -205,6 +205,7 @@ def make_breaking_poster(title, source, output_path="poster.png"):
     draw.text(((W - pw) // 2, H - 95), page_text, font=font_page, fill=(255, 255, 255))
 
     result.save(output_path, quality=95)
+    print(f"  🖼️ تم حفظ: {output_path}")
     return output_path
 
 # ===================== جلب الأخبار =====================
@@ -255,7 +256,6 @@ def check_once(history, counter):
         print(f"  ✅ بوستر جاهز: {output}")
 
         history = add_to_history(title, history)
-
         time.sleep(2)
 
     return history, counter
@@ -273,8 +273,6 @@ def run_forever():
     history = load_history()
     counter = len(history)
 
-    print("اضغط Ctrl+C لإيقاف البوت\n")
-
     while True:
         try:
             history, counter = check_once(history, counter)
@@ -285,7 +283,6 @@ def run_forever():
             break
         except Exception as e:
             print(f"\n❌ خطأ غير متوقع: {e}")
-            print("⏳ إعادة المحاولة بعد دقيقة...")
             time.sleep(60)
 
 if __name__ == "__main__":
