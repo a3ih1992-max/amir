@@ -20,7 +20,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install Pillow arabic-reshaper python-bidi requests
+          pip install requests playwright
+          playwright install chromium
+          playwright install-deps chromium
 
       - name: Run bot
         env:
