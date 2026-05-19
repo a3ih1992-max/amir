@@ -56,6 +56,7 @@ def build_html(title, source):
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@700;900&display=swap" rel="stylesheet">
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
@@ -66,7 +67,7 @@ def build_html(title, source):
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-family: 'Cairo', 'Noto Sans Arabic', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Amiri', 'Cairo', Arial, sans-serif;
     direction: rtl;
     overflow: hidden;
   }}
@@ -74,7 +75,6 @@ def build_html(title, source):
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-bottom: 40px;
     position: absolute;
     top: 100px;
   }}
@@ -82,10 +82,11 @@ def build_html(title, source):
     border: 6px solid white;
     padding: 18px 55px;
     font-size: 110px;
-    font-weight: 900;
+    font-weight: 700;
     color: white;
     letter-spacing: 4px;
     line-height: 1.1;
+    font-family: 'Amiri', serif;
   }}
   .arrow {{
     width: 0;
@@ -101,18 +102,19 @@ def build_html(title, source):
     width: 100%;
   }}
   .title {{
-    font-size: 68px;
+    font-size: 72px;
     font-weight: 700;
     color: white;
-    line-height: 1.5;
+    line-height: 1.6;
     margin-bottom: 30px;
     direction: rtl;
-    unicode-bidi: bidi-override;
+    font-family: 'Amiri', serif;
   }}
   .source {{
     font-size: 32px;
     color: rgba(255,220,220,0.9);
     margin-top: 20px;
+    font-family: 'Amiri', serif;
   }}
   .footer {{
     position: absolute;
@@ -122,10 +124,11 @@ def build_html(title, source):
   }}
   .logo {{
     font-size: 72px;
-    font-weight: 900;
+    font-weight: 700;
     color: white;
     display: block;
     margin-bottom: 10px;
+    font-family: 'Amiri', serif;
   }}
   .line {{
     width: 200px;
@@ -136,9 +139,9 @@ def build_html(title, source):
   .handle {{
     font-size: 36px;
     color: white;
+    font-family: 'Cairo', sans-serif;
   }}
 </style>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="badge-wrap">
@@ -172,7 +175,7 @@ def make_poster(title, source, output_path):
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 1080, "height": 1080})
             page.goto(f"file://{os.path.abspath(html_file)}")
-            page.wait_for_timeout(1500)  # انتظار تحميل الخط
+            page.wait_for_timeout(2000)  # انتظار تحميل خط Amiri
             page.screenshot(path=output_path, full_page=False)
             browser.close()
 
