@@ -28,11 +28,13 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python ajel24_bot.py --once
 
-      - name: Commit posters
+     - name: Commit posters
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "[email protected]"
+          git stash
           git pull --rebase origin main
+          git stash pop
           git add posters/ ajel24_history.json
           git commit -m "تحديث الأخبار" || echo "لا تغييرات"
           git push
