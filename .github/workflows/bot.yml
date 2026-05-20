@@ -2,12 +2,15 @@ name: Run Ajel24 Bot
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/3 * * * *'
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +32,7 @@ jobs:
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "[email protected]"
+          git pull --rebase origin main
           git add posters/ ajel24_history.json
           git commit -m "تحديث الأخبار" || echo "لا تغييرات"
           git push
