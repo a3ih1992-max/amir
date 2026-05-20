@@ -1,40 +1,48 @@
-name: Run Ajel24 Bot
+name: Ajel24 Bot 🔴
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
-  workflow_dispatch:
+    - cron: '*/5 * * * *'   # كل 5 دقائق تلقائياً
+  workflow_dispatch:          # تشغيل يدوي للاختبار
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Set up Python
+    steps:
+      - name: 📥 تحميل الكود
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 إعداد Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: 📦 تثبيت المكتبات
         run: |
-          pip install requests playwright
+          pip install playwright requests -q
           playwright install chromium
           playwright install-deps chromium
 
-      - name: Run bot
+      - name: 💾 استرجاع السجل
+        uses: actions/cache@v4
+        with:
+          path: ajel24_history.json
+          key: history-${{ github.run_id }}
+          restore-keys: |
+            history-
+
+      - name: 🤖 تشغيل البوت
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python ajel24_bot.py --once
+        run: python ajel24.py --once
 
-      - name: Commit posters
+      - name: 📤 رفع البوسترات
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "[email protected]"
-          git add posters/ ajel24_history.json
-          git commit -m "تحديث الأخبار" || echo "لا تغييرات"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posters/
+          git diff --cached --quiet || git commit -m "🖼️ بوسترات جديدة - $(date '+%H:%M')"
           git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
