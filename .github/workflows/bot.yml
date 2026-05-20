@@ -8,11 +8,15 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,20 +25,26 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install Pillow arabic-reshaper python-bidi requests
+          pip install Pillow arabic-reshaper python-bidi requests playwright
+          playwright install chromium
+
+      - name: Create folders
+        run: |
+          mkdir -p posters
 
       - name: Run bot
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python ajel24_bot.py --once
+        run: |
+          python ajel24_bot.py --once
 
-      - name: Commit posters
+      - name: Commit and push
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "[email protected]"
-          git stash
-          git pull --rebase origin main
-          git stash pop
+
           git add posters/ ajel24_history.json
-          git commit -m "تحديث الأخبار" || echo "لا تغييرات"
-          git push --force
+
+          git diff --cached --quiet || git commit -m "تحديث الأخبار"
+
+          git push
