@@ -36,4 +36,5 @@ jobs:
           git stash pop
           git add posters/ ajel24_history.json
           git commit -m "تحديث الأخبار" || echo "لا تغييرات"
-          git push --force
+                    git push --force
+
