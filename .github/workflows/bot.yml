@@ -37,8 +37,7 @@ jobs:
       - name: 🤖 تشغيل البوت
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python ajel24.py --once
-
+run: python ajel24_bot.py --once
       - name: 📤 رفع البوسترات
         run: |
           git config user.name "github-actions[bot]"
