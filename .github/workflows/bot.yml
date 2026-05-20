@@ -2,12 +2,14 @@ name: Ajel24 Bot 🔴
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # كل 5 دقائق تلقائياً
-  workflow_dispatch:          # تشغيل يدوي للاختبار
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: 📥 تحميل الكود
@@ -37,11 +39,13 @@ jobs:
       - name: 🤖 تشغيل البوت
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-run: python ajel24_bot.py --once
+        run: python ajel24_bot.py --once
+
       - name: 📤 رفع البوسترات
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
           git add posters/
           git diff --cached --quiet || git commit -m "🖼️ بوسترات جديدة - $(date '+%H:%M')"
           git push
