@@ -37,7 +37,6 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           python ajel24_bot.py --once
-
       - name: Commit and push
         run: |
           git config --global user.name "github-actions"
@@ -47,4 +46,6 @@ jobs:
 
           git diff --cached --quiet || git commit -m "تحديث الأخبار"
 
-          git push
+          git pull --rebase origin main
+
+          git push origin main
