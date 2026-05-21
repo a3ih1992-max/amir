@@ -1,6 +1,6 @@
 """
 بوت أخبار عاجل 24
-يجلب جميع الأخبار السياسية
+يجلب الأخبار السياسية ويصنع بوسترات مع نص للنشر على فيسبوك
 """
 
 import requests
@@ -23,7 +23,7 @@ socket.getaddrinfo = new_getaddrinfo
 # ===================== الإعدادات =====================
 PAGE_HANDLE         = "Ajel24"
 GROQ_API_KEY        = os.environ.get("GROQ_API_KEY", "")
-CHECK_EVERY_MINUTES = 5
+CHECK_EVERY_MINUTES = 15
 HISTORY_FILE        = "ajel24_history.json"
 
 # ===================== المصادر =====================
@@ -54,7 +54,6 @@ POLITICAL_KEYWORDS = [
 ]
 
 def is_political(title):
-    """التحقق إذا كان الخبر سياسياً"""
     for keyword in POLITICAL_KEYWORDS:
         if keyword in title:
             return True
@@ -244,6 +243,51 @@ def rephrase_with_groq(title):
     except:
         return title
 
+def generate_facebook_caption(title, source):
+    """توليد نص مختصر للنشر على فيسبوك"""
+    if not GROQ_API_KEY:
+        return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
+    try:
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        body = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": f"""اكتب نصاً مختصراً لمنشور فيسبوك عن هذا الخبر:
+"{title}"
+المصدر: {source}
+
+الشروط:
+- 3 أسطر فقط
+- السطر الأول: ملخص الخبر بأسلوب واضح
+- السطر الثاني: تفاصيل مختصرة
+- السطر الثالث: هاشتاقات مناسبة بالعربية
+- لا تضع عنوان أو مقدمة، فقط النص مباشرة"""}],
+            "temperature": 0.7,
+            "max_tokens": 200
+        }
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers, json=body, timeout=15
+        )
+        data = resp.json()
+        if "error" in data:
+            return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
+        caption = data["choices"][0]["message"]["content"].strip()
+        caption += f"\n\n🔴 عاجل 24 | f {PAGE_HANDLE}"
+        print(f"  📝 نص فيسبوك جاهز")
+        return caption
+    except:
+        return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
+
+def save_caption(caption, output_path):
+    """حفظ نص فيسبوك في ملف نصي"""
+    txt_path = output_path.replace(".png", ".txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(caption)
+    print(f"  📄 {txt_path}")
+
 # ===================== سجل الأخبار =====================
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -301,8 +345,15 @@ def check_once(history, counter):
         title  = news["title"]
         source = news["source"]
         print(f"\n  [{counter}] [{source}] {title[:60]}")
+
         new_title = rephrase_with_groq(title)
-        make_poster(new_title, source, f"posters/ajel24_{counter:03d}.png")
+        poster_path = f"posters/ajel24_{counter:03d}.png"
+
+        make_poster(new_title, source, poster_path)
+
+        caption = generate_facebook_caption(new_title, source)
+        save_caption(caption, poster_path)
+
         history = add_to_history(title, history)
         time.sleep(2)
 
