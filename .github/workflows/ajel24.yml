@@ -2,7 +2,7 @@ name: Run Ajel24 Bot
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -28,6 +28,8 @@ jobs:
       - name: Run bot
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          BUFFER_TOKEN: ${{ secrets.BUFFER_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
         run: python ajel24_bot.py --once
 
       - name: Commit and push
