@@ -1,6 +1,6 @@
 """
 بوت أخبار عاجل 24
-يستخدم HTML + Playwright لرسم البوسترات بنص عربي صحيح 100%
+يجلب جميع الأخبار السياسية
 """
 
 import requests
@@ -39,6 +39,27 @@ NEWS_SOURCES = [
     {"name": "CGTN عربي", "url": "https://arabic.cgtn.com/rss.xml"},
 ]
 
+# كلمات مفتاحية للأخبار السياسية
+POLITICAL_KEYWORDS = [
+    "رئيس", "وزير", "حكومة", "برلمان", "انتخاب", "سفير", "دبلوماسي",
+    "مجلس", "قمة", "اتفاق", "معاهدة", "تحالف", "حزب", "زعيم",
+    "أمين عام", "أمم متحدة", "مجلس الأمن", "ناتو", "اتحاد أوروبي",
+    "سياسة", "دولة", "حرب", "صراع", "أزمة", "مفاوضات", "وقف إطلاق",
+    "هجوم", "قصف", "غارة", "عملية عسكرية", "جيش", "قوات",
+    "اقتصاد", "عقوبات", "نفط", "غاز", "اتفاقية", "ميثاق",
+    "ترامب", "بوتين", "بايدن", "نتنياهو", "ماكرون", "شي جين",
+    "إسرائيل", "فلسطين", "غزة", "لبنان", "سوريا", "إيران", "العراق",
+    "اليمن", "السودان", "ليبيا", "أوكرانيا", "روسيا", "الصين",
+    "أمريكا", "الولايات المتحدة", "أوروبا", "الخليج", "السعودية"
+]
+
+def is_political(title):
+    """التحقق إذا كان الخبر سياسياً"""
+    for keyword in POLITICAL_KEYWORDS:
+        if keyword in title:
+            return True
+    return False
+
 # ===================== تثبيت Playwright =====================
 def setup_playwright():
     try:
@@ -56,7 +77,7 @@ def build_html(title, source):
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
@@ -66,8 +87,8 @@ def build_html(title, source):
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    font-family: 'Amiri', 'Cairo', Arial, sans-serif;
+    justify-content: flex-start;
+    font-family: 'Amiri', serif;
     direction: rtl;
     overflow: hidden;
   }}
@@ -75,77 +96,83 @@ def build_html(title, source):
     display: flex;
     flex-direction: column;
     align-items: center;
-    position: absolute;
-    top: 100px;
+    margin-top: 90px;
   }}
   .badge {{
-    border: 6px solid white;
-    padding: 18px 55px;
-    font-size: 110px;
+    border: 7px solid white;
+    padding: 16px 80px;
+    font-size: 100px;
     font-weight: 700;
     color: white;
-    letter-spacing: 4px;
     line-height: 1.1;
     font-family: 'Amiri', serif;
+    background: #c81e1e;
   }}
   .arrow {{
     width: 0;
     height: 0;
-    border-left: 22px solid transparent;
-    border-right: 22px solid transparent;
-    border-top: 28px solid white;
+    border-left: 28px solid transparent;
+    border-right: 28px solid transparent;
+    border-top: 36px solid white;
   }}
   .content {{
-    margin-top: 320px;
-    padding: 0 60px;
+    margin-top: 60px;
+    padding: 0 70px;
     text-align: center;
     width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
   }}
   .title {{
-    font-size: 72px;
+    font-size: 74px;
     font-weight: 700;
     color: white;
-    line-height: 1.6;
-    margin-bottom: 30px;
+    line-height: 1.65;
     direction: rtl;
     font-family: 'Amiri', serif;
+    text-align: center;
   }}
   .source {{
-    font-size: 32px;
-    color: rgba(255,220,220,0.9);
-    margin-top: 20px;
+    font-size: 34px;
+    font-weight: 400;
+    color: rgba(255, 220, 220, 0.85);
+    margin-top: 40px;
     font-family: 'Amiri', serif;
   }}
   .footer {{
-    position: absolute;
-    bottom: 80px;
-    text-align: center;
     width: 100%;
+    text-align: center;
+    padding-bottom: 60px;
+  }}
+  .footer-line {{
+    width: 220px;
+    height: 3px;
+    background: rgba(255,255,255,0.5);
+    margin: 0 auto 20px;
   }}
   .logo {{
-    font-size: 72px;
+    font-size: 80px;
     font-weight: 700;
     color: white;
     display: block;
-    margin-bottom: 10px;
     font-family: 'Amiri', serif;
-  }}
-  .line {{
-    width: 200px;
-    height: 4px;
-    background: white;
-    margin: 10px auto;
+    line-height: 1.1;
   }}
   .handle {{
-    font-size: 36px;
-    color: white;
-    font-family: 'Cairo', sans-serif;
+    font-size: 32px;
+    color: rgba(255,255,255,0.7);
+    font-family: 'Amiri', serif;
+    margin-top: 10px;
+    display: block;
   }}
 </style>
 </head>
 <body>
   <div class="badge-wrap">
-    <div class="badge">عاجل</div>
+    <div class="badge">خبر</div>
     <div class="arrow"></div>
   </div>
   <div class="content">
@@ -153,8 +180,8 @@ def build_html(title, source):
     <div class="source">المصدر: {source}</div>
   </div>
   <div class="footer">
+    <div class="footer-line"></div>
     <span class="logo">عاجل 24</span>
-    <div class="line"></div>
     <span class="handle">f &nbsp; {PAGE_HANDLE}</span>
   </div>
 </body>
@@ -175,7 +202,7 @@ def make_poster(title, source, output_path):
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 1080, "height": 1080})
             page.goto(f"file://{os.path.abspath(html_file)}")
-            page.wait_for_timeout(2000)  # انتظار تحميل خط Amiri
+            page.wait_for_timeout(3000)
             page.screenshot(path=output_path, full_page=False)
             browser.close()
 
@@ -198,7 +225,7 @@ def rephrase_with_groq(title):
         }
         body = {
             "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": f"""أعد صياغة هذا العنوان الإخباري بأسلوب عاجل مختصر:
+            "messages": [{"role": "user", "content": f"""أعد صياغة هذا العنوان الإخباري بأسلوب مختصر واضح:
 "{title}"
 أجب بالعنوان فقط بدون شرح."""}],
             "temperature": 0.7,
@@ -244,9 +271,9 @@ def fetch_source(source):
         root = ET.fromstring(resp.read())
         for item in root.findall(".//item"):
             t = item.findtext("title", "").strip()
-            if t:
+            if t and is_political(t):
                 items.append({"title": t, "source": source["name"]})
-        print(f"  📡 {source['name']}: {len(items)}")
+        print(f"  📡 {source['name']}: {len(items)} خبر سياسي")
     except Exception as e:
         print(f"  ⚠️ {source['name']}: {e}")
     return items
