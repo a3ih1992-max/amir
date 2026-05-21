@@ -1,6 +1,6 @@
 """
 بوت أخبار عاجل 24
-يجلب الأخبار السياسية ويصنع بوسترات مع نص للنشر على فيسبوك
+يجلب الأخبار السياسية ويصنع بوسترات وينشر على فيسبوك عبر Buffer
 """
 
 import requests
@@ -23,6 +23,8 @@ socket.getaddrinfo = new_getaddrinfo
 # ===================== الإعدادات =====================
 PAGE_HANDLE         = "Ajel24"
 GROQ_API_KEY        = os.environ.get("GROQ_API_KEY", "")
+BUFFER_TOKEN        = os.environ.get("BUFFER_TOKEN", "")
+FB_PAGE_ID          = os.environ.get("FB_PAGE_ID", "")
 CHECK_EVERY_MINUTES = 15
 HISTORY_FILE        = "ajel24_history.json"
 
@@ -190,13 +192,10 @@ def build_html(title, source):
 def make_poster(title, source, output_path):
     try:
         from playwright.sync_api import sync_playwright
-
         html = build_html(title, source)
         html_file = output_path.replace(".png", ".html")
-
         with open(html_file, "w", encoding="utf-8") as f:
             f.write(html)
-
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 1080, "height": 1080})
@@ -204,11 +203,9 @@ def make_poster(title, source, output_path):
             page.wait_for_timeout(3000)
             page.screenshot(path=output_path, full_page=False)
             browser.close()
-
         os.remove(html_file)
         print(f"  🖼️ {output_path}")
         return output_path
-
     except Exception as e:
         print(f"  ❌ خطأ في البوستر: {e}")
         return None
@@ -237,14 +234,11 @@ def rephrase_with_groq(title):
         data = resp.json()
         if "error" in data:
             return title
-        new_title = data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
-        print(f"  ✏️ {new_title}")
-        return new_title
+        return data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
     except:
         return title
 
-def generate_facebook_caption(title, source):
-    """توليد نص مختصر للنشر على فيسبوك"""
+def generate_caption(title, source):
     if not GROQ_API_KEY:
         return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
     try:
@@ -257,13 +251,12 @@ def generate_facebook_caption(title, source):
             "messages": [{"role": "user", "content": f"""اكتب نصاً مختصراً لمنشور فيسبوك عن هذا الخبر:
 "{title}"
 المصدر: {source}
-
 الشروط:
 - 3 أسطر فقط
-- السطر الأول: ملخص الخبر بأسلوب واضح
+- السطر الأول: ملخص الخبر
 - السطر الثاني: تفاصيل مختصرة
-- السطر الثالث: هاشتاقات مناسبة بالعربية
-- لا تضع عنوان أو مقدمة، فقط النص مباشرة"""}],
+- السطر الثالث: هاشتاقات عربية
+- لا تضع مقدمة، فقط النص مباشرة"""}],
             "temperature": 0.7,
             "max_tokens": 200
         }
@@ -276,17 +269,76 @@ def generate_facebook_caption(title, source):
             return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
         caption = data["choices"][0]["message"]["content"].strip()
         caption += f"\n\n🔴 عاجل 24 | f {PAGE_HANDLE}"
-        print(f"  📝 نص فيسبوك جاهز")
         return caption
     except:
         return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
 
-def save_caption(caption, output_path):
-    """حفظ نص فيسبوك في ملف نصي"""
-    txt_path = output_path.replace(".png", ".txt")
-    with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(caption)
-    print(f"  📄 {txt_path}")
+# ===================== النشر على Buffer =====================
+def get_buffer_profile_id():
+    """الحصول على معرف صفحة فيسبوك في Buffer"""
+    try:
+        headers = {"Authorization": f"Bearer {BUFFER_TOKEN}"}
+        resp = requests.get("https://api.bufferapp.com/1/profiles.json", headers=headers, timeout=15)
+        profiles = resp.json()
+        for profile in profiles:
+            if FB_PAGE_ID in str(profile.get("service_id", "")):
+                print(f"  ✅ Buffer Profile: {profile['id']}")
+                return profile["id"]
+        if profiles:
+            print(f"  ⚠️ استخدام أول صفحة: {profiles[0]['id']}")
+            return profiles[0]["id"]
+    except Exception as e:
+        print(f"  ❌ خطأ في Buffer profiles: {e}")
+    return None
+
+def publish_to_buffer(image_path, caption):
+    """نشر البوستر على فيسبوك عبر Buffer"""
+    if not BUFFER_TOKEN:
+        print("  ⚠️ لا يوجد BUFFER_TOKEN")
+        return False
+    try:
+        profile_id = get_buffer_profile_id()
+        if not profile_id:
+            return False
+
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+
+        import base64
+        image_b64 = base64.b64encode(image_data).decode()
+
+        headers = {
+            "Authorization": f"Bearer {BUFFER_TOKEN}",
+            "Content-Type": "application/json"
+        }
+
+        body = {
+            "profile_ids": [profile_id],
+            "text": caption,
+            "media": {
+                "photo": f"data:image/png;base64,{image_b64}"
+            },
+            "now": True
+        }
+
+        resp = requests.post(
+            "https://api.bufferapp.com/1/updates/create.json",
+            headers=headers,
+            json=body,
+            timeout=30
+        )
+
+        data = resp.json()
+        if data.get("success"):
+            print(f"  ✅ نُشر على فيسبوك!")
+            return True
+        else:
+            print(f"  ❌ Buffer error: {data}")
+            return False
+
+    except Exception as e:
+        print(f"  ❌ خطأ في النشر: {e}")
+        return False
 
 # ===================== سجل الأخبار =====================
 def load_history():
@@ -350,12 +402,16 @@ def check_once(history, counter):
         poster_path = f"posters/ajel24_{counter:03d}.png"
 
         make_poster(new_title, source, poster_path)
+        caption = generate_caption(new_title, source)
 
-        caption = generate_facebook_caption(new_title, source)
-        save_caption(caption, poster_path)
+        txt_path = poster_path.replace(".png", ".txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(caption)
+
+        publish_to_buffer(poster_path, caption)
 
         history = add_to_history(title, history)
-        time.sleep(2)
+        time.sleep(3)
 
     return history, counter
 
