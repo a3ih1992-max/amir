@@ -1,6 +1,6 @@
 """
 بوت أخبار عاجل 24
-يجلب الأخبار السياسية ويصنع بوسترات وينشر على فيسبوك عبر Buffer
+يجلب الأخبار السياسية ويصنع بوسترات وينشر على فيسبوك
 """
 
 import requests
@@ -27,6 +27,7 @@ BUFFER_TOKEN        = os.environ.get("BUFFER_TOKEN", "")
 FB_PAGE_ID          = os.environ.get("FB_PAGE_ID", "")
 CHECK_EVERY_MINUTES = 15
 HISTORY_FILE        = "ajel24_history.json"
+MAX_POSTERS         = 100  # الحد الأقصى للبوسترات المحفوظة
 
 # ===================== المصادر =====================
 NEWS_SOURCES = [
@@ -60,6 +61,27 @@ def is_political(title):
         if keyword in title:
             return True
     return False
+
+# ===================== حذف البوسترات القديمة =====================
+def cleanup_old_posters():
+    """احتفظ بآخر 100 بوستر واحذف الباقي"""
+    try:
+        folder = "posters"
+        files = sorted([
+            f for f in os.listdir(folder)
+            if f.endswith(".png")
+        ])
+        if len(files) > MAX_POSTERS:
+            to_delete = files[:len(files) - MAX_POSTERS]
+            for f in to_delete:
+                png_path = os.path.join(folder, f)
+                txt_path = png_path.replace(".png", ".txt")
+                os.remove(png_path)
+                if os.path.exists(txt_path):
+                    os.remove(txt_path)
+            print(f"  🗑️ تم حذف {len(to_delete)} بوستر قديم")
+    except Exception as e:
+        print(f"  ⚠️ خطأ في الحذف: {e}")
 
 # ===================== تثبيت Playwright =====================
 def setup_playwright():
@@ -273,73 +295,6 @@ def generate_caption(title, source):
     except:
         return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
 
-# ===================== النشر على Buffer =====================
-def get_buffer_profile_id():
-    """الحصول على معرف صفحة فيسبوك في Buffer"""
-    try:
-        headers = {"Authorization": f"Bearer {BUFFER_TOKEN}"}
-        resp = requests.get("https://api.bufferapp.com/1/profiles.json", headers=headers, timeout=15)
-        profiles = resp.json()
-        for profile in profiles:
-            if FB_PAGE_ID in str(profile.get("service_id", "")):
-                print(f"  ✅ Buffer Profile: {profile['id']}")
-                return profile["id"]
-        if profiles:
-            print(f"  ⚠️ استخدام أول صفحة: {profiles[0]['id']}")
-            return profiles[0]["id"]
-    except Exception as e:
-        print(f"  ❌ خطأ في Buffer profiles: {e}")
-    return None
-
-def publish_to_buffer(image_path, caption):
-    """نشر البوستر على فيسبوك عبر Buffer"""
-    if not BUFFER_TOKEN:
-        print("  ⚠️ لا يوجد BUFFER_TOKEN")
-        return False
-    try:
-        profile_id = get_buffer_profile_id()
-        if not profile_id:
-            return False
-
-        with open(image_path, "rb") as f:
-            image_data = f.read()
-
-        import base64
-        image_b64 = base64.b64encode(image_data).decode()
-
-        headers = {
-            "Authorization": f"Bearer {BUFFER_TOKEN}",
-            "Content-Type": "application/json"
-        }
-
-        body = {
-            "profile_ids": [profile_id],
-            "text": caption,
-            "media": {
-                "photo": f"data:image/png;base64,{image_b64}"
-            },
-            "now": True
-        }
-
-        resp = requests.post(
-            "https://api.bufferapp.com/1/updates/create.json",
-            headers=headers,
-            json=body,
-            timeout=30
-        )
-
-        data = resp.json()
-        if data.get("success"):
-            print(f"  ✅ نُشر على فيسبوك!")
-            return True
-        else:
-            print(f"  ❌ Buffer error: {data}")
-            return False
-
-    except Exception as e:
-        print(f"  ❌ خطأ في النشر: {e}")
-        return False
-
 # ===================== سجل الأخبار =====================
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -384,6 +339,10 @@ def fetch_all():
 # ===================== الفحص =====================
 def check_once(history, counter):
     print(f"\n🔄 [{datetime.now().strftime('%H:%M:%S')}] فحص المصادر...")
+
+    # حذف البوسترات القديمة أولاً
+    cleanup_old_posters()
+
     all_news = fetch_all()
     new_news = [n for n in all_news if n["title"] not in history]
 
@@ -407,8 +366,6 @@ def check_once(history, counter):
         txt_path = poster_path.replace(".png", ".txt")
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(caption)
-
-        publish_to_buffer(poster_path, caption)
 
         history = add_to_history(title, history)
         time.sleep(3)
