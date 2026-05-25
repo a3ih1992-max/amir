@@ -12,7 +12,8 @@ import time
 import socket
 import sys
 import subprocess
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 
 old_getaddrinfo = socket.getaddrinfo
 def new_getaddrinfo(*args, **kwargs):
@@ -23,11 +24,12 @@ socket.getaddrinfo = new_getaddrinfo
 # ===================== الإعدادات =====================
 PAGE_HANDLE         = "Ajel24"
 GROQ_API_KEY        = os.environ.get("GROQ_API_KEY", "")
-BUFFER_TOKEN        = os.environ.get("BUFFER_TOKEN", "")
-FB_PAGE_ID          = os.environ.get("FB_PAGE_ID", "")
 CHECK_EVERY_MINUTES = 15
 HISTORY_FILE        = "ajel24_history.json"
-MAX_POSTERS         = 100  # الحد الأقصى للبوسترات المحفوظة
+LATEST_FILE         = "latest.txt"
+QUEUE_FILE          = "publish_queue.json"
+MAX_POSTERS         = 100
+GITHUB_RAW          = "https://raw.githubusercontent.com/a3ih1992-max/amir/main/posters/"
 
 # ===================== المصادر =====================
 NEWS_SOURCES = [
@@ -64,13 +66,9 @@ def is_political(title):
 
 # ===================== حذف البوسترات القديمة =====================
 def cleanup_old_posters():
-    """احتفظ بآخر 100 بوستر واحذف الباقي"""
     try:
         folder = "posters"
-        files = sorted([
-            f for f in os.listdir(folder)
-            if f.endswith(".png")
-        ])
+        files = sorted([f for f in os.listdir(folder) if f.endswith(".png")])
         if len(files) > MAX_POSTERS:
             to_delete = files[:len(files) - MAX_POSTERS]
             for f in to_delete:
@@ -82,6 +80,48 @@ def cleanup_old_posters():
             print(f"  🗑️ تم حذف {len(to_delete)} بوستر قديم")
     except Exception as e:
         print(f"  ⚠️ خطأ في الحذف: {e}")
+
+# ===================== كتابة آخر بوستر وقائمة النشر =====================
+def update_latest(poster_name):
+    """كتابة اسم آخر بوستر في ملف latest.txt"""
+    with open(LATEST_FILE, "w", encoding="utf-8") as f:
+        f.write(GITHUB_RAW + poster_name)
+    print(f"  📝 latest.txt → {poster_name}")
+
+def update_publish_queue(new_posters):
+    """إنشاء قائمة نشر بأوقات عشوائية تبدو طبيعية"""
+    if not new_posters:
+        return
+
+    # أوقات الانتظار بين المنشورات (بالدقائق) — عشوائية تبدو طبيعية
+    delays = [0, 1, 2, 4, 7, 11, 16, 22, 29, 37]
+
+    now = datetime.now()
+    queue = []
+    delay_total = 0
+
+    for i, poster in enumerate(new_posters):
+        if i < len(delays):
+            delay_total = delays[i]
+        else:
+            # توليد تأخير عشوائي بين 5 و 20 دقيقة
+            delay_total += random.randint(5, 20)
+
+        publish_time = now + timedelta(minutes=delay_total)
+        queue.append({
+            "poster": poster["name"],
+            "url": GITHUB_RAW + poster["name"],
+            "caption": poster["caption"],
+            "publish_at": publish_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "delay_minutes": delay_total
+        })
+
+    with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+        json.dump(queue, f, ensure_ascii=False, indent=2)
+
+    print(f"  📋 قائمة النشر: {len(queue)} بوستر")
+    for item in queue:
+        print(f"      ⏰ {item['poster']} → بعد {item['delay_minutes']} دقيقة")
 
 # ===================== تثبيت Playwright =====================
 def setup_playwright():
@@ -237,10 +277,7 @@ def rephrase_with_groq(title):
     if not GROQ_API_KEY:
         return title
     try:
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         body = {
             "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": f"""أعد صياغة هذا العنوان الإخباري بأسلوب مختصر واضح:
@@ -249,10 +286,7 @@ def rephrase_with_groq(title):
             "temperature": 0.7,
             "max_tokens": 100
         }
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers, json=body, timeout=15
-        )
+        resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=body, timeout=15)
         data = resp.json()
         if "error" in data:
             return title
@@ -264,10 +298,7 @@ def generate_caption(title, source):
     if not GROQ_API_KEY:
         return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
     try:
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         body = {
             "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": f"""اكتب نصاً مختصراً لمنشور فيسبوك عن هذا الخبر:
@@ -282,10 +313,7 @@ def generate_caption(title, source):
             "temperature": 0.7,
             "max_tokens": 200
         }
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers, json=body, timeout=15
-        )
+        resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=body, timeout=15)
         data = resp.json()
         if "error" in data:
             return f"📰 {title}\n\nالمصدر: {source}\n\n#عاجل24 #أخبار"
@@ -339,8 +367,6 @@ def fetch_all():
 # ===================== الفحص =====================
 def check_once(history, counter):
     print(f"\n🔄 [{datetime.now().strftime('%H:%M:%S')}] فحص المصادر...")
-
-    # حذف البوسترات القديمة أولاً
     cleanup_old_posters()
 
     all_news = fetch_all()
@@ -351,14 +377,17 @@ def check_once(history, counter):
         return history, counter
 
     print(f"  🔔 {len(new_news)} جديد!")
+    new_posters = []
+
     for news in new_news:
         counter += 1
         title  = news["title"]
         source = news["source"]
         print(f"\n  [{counter}] [{source}] {title[:60]}")
 
-        new_title = rephrase_with_groq(title)
-        poster_path = f"posters/ajel24_{counter:03d}.png"
+        new_title   = rephrase_with_groq(title)
+        poster_name = f"ajel24_{counter:03d}.png"
+        poster_path = f"posters/{poster_name}"
 
         make_poster(new_title, source, poster_path)
         caption = generate_caption(new_title, source)
@@ -367,8 +396,13 @@ def check_once(history, counter):
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(caption)
 
+        new_posters.append({"name": poster_name, "caption": caption})
         history = add_to_history(title, history)
         time.sleep(3)
+
+    if new_posters:
+        update_latest(new_posters[-1]["name"])
+        update_publish_queue(new_posters)
 
     return history, counter
 
